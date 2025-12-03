@@ -18,6 +18,7 @@ class Campaign
     
     /**
      * Get all campaigns with stats
+     * Note: CPVLab uses 'Inactive' (1=inactive, 0=active) instead of 'Active'
      */
     public function getAll(array $filters = []): array
     {
@@ -25,14 +26,14 @@ class Campaign
             SELECT 
                 c.CampaignID,
                 c.CampaignName,
-                c.CampaignKey,
-                c.Active,
-                c.DateAdded,
+                c.KeyCode as CampaignKey,
+                (1 - c.Inactive) as Active,
+                c.CreateDate as DateAdded,
                 c.ModifyDate,
-                c.CPVSourceID,
-                c.CostModel,
-                c.CostValue,
-                s.CPVSource as TrafficSource,
+                c.CpvSourceID,
+                c.CostTypeID,
+                c.RealTimeCPV as CostValue,
+                s.Source as TrafficSource,
                 COALESCE(ct.Views, 0) as Views,
                 COALESCE(ct.Clicks, 0) as Clicks,
                 COALESCE(ct.Conversion, 0) as Conversions,
@@ -41,30 +42,30 @@ class Campaign
                 COALESCE(ct.Profit, 0) as Profit,
                 COALESCE(ct.ROI, 0) as ROI
             FROM campaigns c
-            LEFT JOIN cpvsources s ON c.CPVSourceID = s.CPVSourceID
+            LEFT JOIN cpvsources s ON c.CpvSourceID = s.CpvSourceID
             LEFT JOIN cachetotals ct ON c.CampaignID = ct.CampaignID
-            WHERE 1=1
+            WHERE c.DeleteDate IS NULL
         ";
         
         $params = [];
         
         if (!empty($filters['status'])) {
-            $sql .= " AND c.Active = ?";
-            $params[] = $filters['status'] === 'active' ? 1 : 0;
+            $sql .= " AND c.Inactive = ?";
+            $params[] = $filters['status'] === 'active' ? 0 : 1;
         }
         
         if (!empty($filters['source_id'])) {
-            $sql .= " AND c.CPVSourceID = ?";
+            $sql .= " AND c.CpvSourceID = ?";
             $params[] = $filters['source_id'];
         }
         
         if (!empty($filters['search'])) {
-            $sql .= " AND (c.CampaignName LIKE ? OR c.CampaignKey LIKE ?)";
+            $sql .= " AND (c.CampaignName LIKE ? OR c.KeyCode LIKE ?)";
             $params[] = '%' . $filters['search'] . '%';
             $params[] = '%' . $filters['search'] . '%';
         }
         
-        $sql .= " ORDER BY c.DateAdded DESC";
+        $sql .= " ORDER BY c.CreateDate DESC";
         
         if (!empty($filters['limit'])) {
             $sql .= " LIMIT " . (int)$filters['limit'];
@@ -90,7 +91,7 @@ class Campaign
     public function findByKey(string $key): ?array
     {
         return $this->db->fetch(
-            "SELECT * FROM campaigns WHERE CampaignKey = ?",
+            "SELECT * FROM campaigns WHERE KeyCode = ?",
             [$key]
         );
     }
@@ -101,8 +102,9 @@ class Campaign
     public function create(array $data): int
     {
         // Generate unique campaign key
-        $data['CampaignKey'] = $this->generateCampaignKey();
-        $data['DateAdded'] = date('Y-m-d H:i:s');
+        $data['KeyCode'] = $this->generateCampaignKey();
+        $data['CreateDate'] = date('Y-m-d H:i:s');
+        $data['CreateUserID'] = $_SESSION['user_id'] ?? 1;
         
         return $this->db->insert('campaigns', $data);
     }
@@ -113,6 +115,7 @@ class Campaign
     public function update(int $id, array $data): bool
     {
         $data['ModifyDate'] = date('Y-m-d H:i:s');
+        $data['ModifyUserID'] = $_SESSION['user_id'] ?? 1;
         return $this->db->update('campaigns', $data, 'CampaignID = ?', [$id]) > 0;
     }
     
@@ -139,15 +142,26 @@ class Campaign
         
         // Update name and key
         $campaign['CampaignName'] = $campaign['CampaignName'] . ' (Copy)';
-        $campaign['CampaignKey'] = $this->generateCampaignKey();
-        $campaign['DateAdded'] = date('Y-m-d H:i:s');
+        $campaign['KeyCode'] = $this->generateCampaignKey();
+        $campaign['CreateDate'] = date('Y-m-d H:i:s');
+        $campaign['CreateUserID'] = $_SESSION['user_id'] ?? 1;
         $campaign['ModifyDate'] = null;
+        $campaign['ModifyUserID'] = null;
+        
+        // Reset stats
+        $campaign['LastViews'] = 0;
+        $campaign['LastViewsNew'] = 0;
+        $campaign['LastConversion'] = 0;
+        $campaign['LastProfit'] = 0;
+        $campaign['LastProfitNew'] = 0;
+        $campaign['LastROI'] = 0;
         
         return $this->db->insert('campaigns', $campaign);
     }
     
     /**
      * Toggle campaign active status
+     * Note: CPVLab uses Inactive (1=inactive, 0=active)
      */
     public function toggleActive(int $id): bool
     {
@@ -156,7 +170,7 @@ class Campaign
             return false;
         }
         
-        return $this->update($id, ['Active' => $campaign['Active'] ? 0 : 1]);
+        return $this->update($id, ['Inactive' => $campaign['Inactive'] ? 0 : 1]);
     }
     
     /**

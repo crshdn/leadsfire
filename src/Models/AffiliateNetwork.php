@@ -42,7 +42,6 @@ class AffiliateNetwork
      */
     public function create(array $data): int
     {
-        $data['DateAdded'] = date('Y-m-d H:i:s');
         return $this->db->insert('affiliatesources', $data);
     }
     

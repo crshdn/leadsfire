@@ -22,7 +22,7 @@ class TrafficSource
     public function getAll(): array
     {
         return $this->db->fetchAll(
-            "SELECT * FROM cpvsources ORDER BY CPVSource ASC"
+            "SELECT * FROM cpvsources ORDER BY Source ASC"
         );
     }
     
@@ -32,7 +32,7 @@ class TrafficSource
     public function find(int $id): ?array
     {
         return $this->db->fetch(
-            "SELECT * FROM cpvsources WHERE CPVSourceID = ?",
+            "SELECT * FROM cpvsources WHERE CpvSourceID = ?",
             [$id]
         );
     }
@@ -51,7 +51,7 @@ class TrafficSource
      */
     public function update(int $id, array $data): bool
     {
-        return $this->db->update('cpvsources', $data, 'CPVSourceID = ?', [$id]) > 0;
+        return $this->db->update('cpvsources', $data, 'CpvSourceID = ?', [$id]) > 0;
     }
     
     /**
@@ -59,7 +59,7 @@ class TrafficSource
      */
     public function delete(int $id): bool
     {
-        return $this->db->delete('cpvsources', 'CPVSourceID = ?', [$id]) > 0;
+        return $this->db->delete('cpvsources', 'CpvSourceID = ?', [$id]) > 0;
     }
     
     /**
@@ -68,7 +68,7 @@ class TrafficSource
     public function getForSelect(): array
     {
         return $this->db->fetchAll(
-            "SELECT CPVSourceID as id, CPVSource as name FROM cpvsources ORDER BY CPVSource ASC"
+            "SELECT CpvSourceID as id, Source as name FROM cpvsources ORDER BY Source ASC"
         );
     }
 }
