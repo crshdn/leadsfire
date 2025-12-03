@@ -34,6 +34,7 @@ use LeadsFire\Services\Logger;
 use LeadsFire\Controllers\CampaignController;
 use LeadsFire\Controllers\TrafficSourceController;
 use LeadsFire\Controllers\AffiliateNetworkController;
+use LeadsFire\Models\Stats;
 
 $auth = Auth::getInstance();
 
@@ -187,6 +188,20 @@ if (strpos($requestUri, '/api/') === 0) {
             } elseif ($requestMethod === 'DELETE') {
                 echo json_encode(['success' => $controller->delete($id)]);
             }
+            break;
+        
+        // Stats API
+        case 'stats/range':
+            $days = (int)($_GET['days'] ?? 7);
+            $startDate = date('Y-m-d', strtotime("-{$days} days"));
+            $endDate = date('Y-m-d');
+            $stats = new Stats();
+            echo json_encode($stats->getDateRangeStats($startDate, $endDate));
+            break;
+        
+        case 'stats/today':
+            $stats = new Stats();
+            echo json_encode($stats->getTodayStats());
             break;
             
         default:
