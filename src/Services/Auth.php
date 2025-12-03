@@ -57,24 +57,36 @@ class Auth
     
     /**
      * Attempt to log in a user
+     * Handles both CPVLab schema and our schema
      */
     public function attempt(string $username, string $password): array
     {
         $db = Database::getInstance();
         
+        // Detect schema type
+        $isCpvlabSchema = $this->isCpvlabSchema($db);
+        
         // Get user by username
-        $user = $db->fetch(
-            "SELECT * FROM users WHERE Username = ? AND Active = 1",
-            [$username]
-        );
+        if ($isCpvlabSchema) {
+            // CPVLab schema doesn't have Active column
+            $user = $db->fetch(
+                "SELECT * FROM users WHERE Username = ?",
+                [$username]
+            );
+        } else {
+            $user = $db->fetch(
+                "SELECT * FROM users WHERE Username = ? AND Active = 1",
+                [$username]
+            );
+        }
         
         if (!$user) {
             $this->logAttempt($username, false);
             return ['success' => false, 'message' => 'Invalid username or password'];
         }
         
-        // Check if account is locked
-        if ($user['LockedUntil'] && strtotime($user['LockedUntil']) > time()) {
+        // Check if account is locked (only if column exists)
+        if (!$isCpvlabSchema && isset($user['LockedUntil']) && $user['LockedUntil'] && strtotime($user['LockedUntil']) > time()) {
             $remainingMinutes = ceil((strtotime($user['LockedUntil']) - time()) / 60);
             return [
                 'success' => false, 
@@ -84,20 +96,25 @@ class Auth
         
         // Verify password
         if (!password_verify($password, $user['Password'])) {
-            $this->incrementLoginAttempts($user['UserID']);
+            if (!$isCpvlabSchema) {
+                $this->incrementLoginAttempts($user['UserID']);
+            }
             $this->logAttempt($username, false);
             return ['success' => false, 'message' => 'Invalid username or password'];
         }
         
         // Successful login
-        $this->resetLoginAttempts($user['UserID']);
+        if (!$isCpvlabSchema) {
+            $this->resetLoginAttempts($user['UserID']);
+        }
         $this->updateLastLogin($user['UserID']);
         $this->logAttempt($username, true);
         
         // Store user in session
         $_SESSION['user_id'] = $user['UserID'];
         $_SESSION['username'] = $user['Username'];
-        $_SESSION['role'] = $user['Role'];
+        // CPVLab uses UserRoleID, our schema uses Role
+        $_SESSION['role'] = $user['Role'] ?? ($user['UserRoleID'] == 1 ? 'admin' : 'user');
         $_SESSION['logged_in_at'] = time();
         
         // Regenerate session ID on login
@@ -106,6 +123,25 @@ class Auth
         $this->user = $user;
         
         return ['success' => true, 'message' => 'Login successful'];
+    }
+    
+    /**
+     * Check if using CPVLab schema
+     */
+    private function isCpvlabSchema(Database $db): bool
+    {
+        static $isCpvlab = null;
+        
+        if ($isCpvlab === null) {
+            try {
+                $result = $db->fetch("SHOW COLUMNS FROM `users` LIKE 'UserRoleID'");
+                $isCpvlab = $result !== false;
+            } catch (\Exception $e) {
+                $isCpvlab = false;
+            }
+        }
+        
+        return $isCpvlab;
     }
     
     /**

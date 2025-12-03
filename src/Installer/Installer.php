@@ -165,6 +165,7 @@ class Installer
     
     /**
      * Create admin user
+     * Handles both CPVLab schema (imported) and fresh install schema
      */
     public function createAdminUser(array $config, string $username, string $password, string $email): bool
     {
@@ -180,33 +181,73 @@ class Installer
                 PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
             ]);
             
-            // Check if users table exists, create if not
-            $pdo->exec("
-                CREATE TABLE IF NOT EXISTS `users` (
-                    `UserID` int(10) unsigned NOT NULL AUTO_INCREMENT,
-                    `Username` varchar(100) NOT NULL,
-                    `Password` varchar(255) NOT NULL,
-                    `Email` varchar(255) NOT NULL,
-                    `Role` varchar(50) NOT NULL DEFAULT 'admin',
-                    `Active` tinyint(1) unsigned NOT NULL DEFAULT 1,
-                    `LastLogin` datetime DEFAULT NULL,
-                    `LoginAttempts` tinyint(3) unsigned NOT NULL DEFAULT 0,
-                    `LockedUntil` datetime DEFAULT NULL,
-                    `CreatedAt` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    `UpdatedAt` datetime DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
-                    PRIMARY KEY (`UserID`),
-                    UNIQUE KEY `Username` (`Username`),
-                    UNIQUE KEY `Email` (`Email`)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
-            ");
+            // Check if users table exists and what schema it has
+            $stmt = $pdo->query("SHOW TABLES LIKE 'users'");
+            $tableExists = $stmt->fetch() !== false;
             
-            $hashedPassword = password_hash($password, PASSWORD_BCRYPT, ['cost' => 12]);
-            
-            $stmt = $pdo->prepare("
-                INSERT INTO `users` (Username, Password, Email, Role, Active, CreatedAt)
-                VALUES (?, ?, ?, 'admin', 1, NOW())
-            ");
-            $stmt->execute([$username, $hashedPassword, $email]);
+            if ($tableExists) {
+                // Check if it's CPVLab schema (has UserRoleID) or our schema (has Email)
+                $stmt = $pdo->query("SHOW COLUMNS FROM `users` LIKE 'UserRoleID'");
+                $isCpvlabSchema = $stmt->fetch() !== false;
+                
+                if ($isCpvlabSchema) {
+                    // CPVLab schema - need to alter table to support longer passwords (bcrypt)
+                    // and add Email column if not exists
+                    $pdo->exec("ALTER TABLE `users` MODIFY `Password` varchar(255) NOT NULL");
+                    
+                    // Check if Email column exists
+                    $stmt = $pdo->query("SHOW COLUMNS FROM `users` LIKE 'Email'");
+                    if ($stmt->fetch() === false) {
+                        $pdo->exec("ALTER TABLE `users` ADD COLUMN `Email` varchar(255) DEFAULT NULL AFTER `Password`");
+                    }
+                    
+                    $hashedPassword = password_hash($password, PASSWORD_BCRYPT, ['cost' => 12]);
+                    
+                    // Insert into CPVLab schema
+                    $stmt = $pdo->prepare("
+                        INSERT INTO `users` (Username, Password, Email, UserRoleID, DateAdded, Timezone)
+                        VALUES (?, ?, ?, 1, NOW(), 'America/New_York')
+                    ");
+                    $stmt->execute([$username, $hashedPassword, $email]);
+                } else {
+                    // Our schema - insert normally
+                    $hashedPassword = password_hash($password, PASSWORD_BCRYPT, ['cost' => 12]);
+                    
+                    $stmt = $pdo->prepare("
+                        INSERT INTO `users` (Username, Password, Email, Role, Active, CreatedAt)
+                        VALUES (?, ?, ?, 'admin', 1, NOW())
+                    ");
+                    $stmt->execute([$username, $hashedPassword, $email]);
+                }
+            } else {
+                // No users table - create our schema
+                $pdo->exec("
+                    CREATE TABLE `users` (
+                        `UserID` int(10) unsigned NOT NULL AUTO_INCREMENT,
+                        `Username` varchar(100) NOT NULL,
+                        `Password` varchar(255) NOT NULL,
+                        `Email` varchar(255) NOT NULL,
+                        `Role` varchar(50) NOT NULL DEFAULT 'admin',
+                        `Active` tinyint(1) unsigned NOT NULL DEFAULT 1,
+                        `LastLogin` datetime DEFAULT NULL,
+                        `LoginAttempts` tinyint(3) unsigned NOT NULL DEFAULT 0,
+                        `LockedUntil` datetime DEFAULT NULL,
+                        `CreatedAt` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        `UpdatedAt` datetime DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+                        PRIMARY KEY (`UserID`),
+                        UNIQUE KEY `Username` (`Username`),
+                        UNIQUE KEY `Email` (`Email`)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+                ");
+                
+                $hashedPassword = password_hash($password, PASSWORD_BCRYPT, ['cost' => 12]);
+                
+                $stmt = $pdo->prepare("
+                    INSERT INTO `users` (Username, Password, Email, Role, Active, CreatedAt)
+                    VALUES (?, ?, ?, 'admin', 1, NOW())
+                ");
+                $stmt->execute([$username, $hashedPassword, $email]);
+            }
             
             return true;
         } catch (PDOException $e) {
