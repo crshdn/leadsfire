@@ -31,6 +31,7 @@ date_default_timezone_set(config('app.timezone', 'America/New_York'));
 // Initialize services
 use LeadsFire\Services\Auth;
 use LeadsFire\Services\Logger;
+use LeadsFire\Controllers\CampaignController;
 
 $auth = Auth::getInstance();
 
@@ -40,20 +41,10 @@ if (!$auth->checkIpRestriction()) {
     die('Access denied. Your IP is not allowed.');
 }
 
-// Get the request URI
+// Get the request URI and method
 $requestUri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 $requestUri = rtrim($requestUri, '/') ?: '/';
-
-// Simple routing
-$routes = [
-    '/' => 'dashboard',
-    '/login' => 'login',
-    '/logout' => 'logout',
-    '/campaigns' => 'campaigns/index',
-    '/campaigns/create' => 'campaigns/create',
-    '/campaigns/edit' => 'campaigns/edit',
-    '/settings' => 'settings',
-];
+$requestMethod = $_SERVER['REQUEST_METHOD'];
 
 // Handle logout
 if ($requestUri === '/logout') {
@@ -69,7 +60,7 @@ if ($requestUri === '/login') {
     
     $error = null;
     
-    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if ($requestMethod === 'POST') {
         // Verify CSRF
         if (!verify_csrf($_POST['_csrf_token'] ?? null)) {
             $error = 'Invalid request. Please try again.';
@@ -100,15 +91,145 @@ if (!$auth->check()) {
 // Get current user
 $currentUser = $auth->user();
 
-// Route to controller
-$route = $routes[$requestUri] ?? '404';
-
-$viewPath = BASE_PATH . '/src/Views/' . $route . '.php';
-if (file_exists($viewPath)) {
-    require $viewPath;
-} else {
-    // 404 page
-    http_response_code(404);
-    require BASE_PATH . '/src/Views/errors/404.php';
+// API routes (JSON responses)
+if (strpos($requestUri, '/api/') === 0) {
+    header('Content-Type: application/json');
+    
+    // Verify CSRF for POST/PUT/DELETE
+    if (in_array($requestMethod, ['POST', 'PUT', 'DELETE'])) {
+        $csrfToken = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? $_POST['_csrf_token'] ?? null;
+        if (!verify_csrf($csrfToken)) {
+            http_response_code(403);
+            echo json_encode(['error' => 'Invalid CSRF token']);
+            exit;
+        }
+    }
+    
+    $apiRoute = substr($requestUri, 5); // Remove '/api/'
+    
+    switch ($apiRoute) {
+        case 'campaigns':
+            $controller = new CampaignController();
+            if ($requestMethod === 'GET') {
+                echo json_encode($controller->index());
+            } elseif ($requestMethod === 'POST') {
+                echo json_encode($controller->store($_POST));
+            }
+            break;
+            
+        case preg_match('/^campaigns\/(\d+)$/', $apiRoute, $m) ? true : false:
+            $controller = new CampaignController();
+            $id = (int)$m[1];
+            if ($requestMethod === 'GET') {
+                echo json_encode($controller->edit($id));
+            } elseif ($requestMethod === 'PUT' || $requestMethod === 'POST') {
+                parse_str(file_get_contents('php://input'), $data);
+                echo json_encode($controller->update($id, array_merge($_POST, $data)));
+            } elseif ($requestMethod === 'DELETE') {
+                echo json_encode(['success' => $controller->delete($id)]);
+            }
+            break;
+            
+        case preg_match('/^campaigns\/(\d+)\/clone$/', $apiRoute, $m) ? true : false:
+            $controller = new CampaignController();
+            $newId = $controller->clone((int)$m[1]);
+            echo json_encode(['success' => $newId !== null, 'campaign_id' => $newId]);
+            break;
+            
+        case preg_match('/^campaigns\/(\d+)\/toggle$/', $apiRoute, $m) ? true : false:
+            $controller = new CampaignController();
+            echo json_encode(['success' => $controller->toggleActive((int)$m[1])]);
+            break;
+            
+        default:
+            http_response_code(404);
+            echo json_encode(['error' => 'Not found']);
+    }
+    exit;
 }
 
+// Web routes
+switch ($requestUri) {
+    case '/':
+        require BASE_PATH . '/src/Views/dashboard.php';
+        break;
+        
+    case '/campaigns':
+        require BASE_PATH . '/src/Views/campaigns/index.php';
+        break;
+        
+    case '/campaigns/create':
+        $controller = new CampaignController();
+        $viewData = $controller->create();
+        
+        if ($requestMethod === 'POST') {
+            if (!verify_csrf($_POST['_csrf_token'] ?? null)) {
+                flash('error', 'Invalid request. Please try again.');
+            } else {
+                $result = $controller->store($_POST);
+                if ($result['success']) {
+                    flash('success', 'Campaign created successfully!');
+                    redirect('/campaigns/edit?id=' . $result['campaign_id']);
+                } else {
+                    $viewData['errors'] = $result['errors'];
+                }
+            }
+        }
+        
+        extract($viewData);
+        require BASE_PATH . '/src/Views/campaigns/create.php';
+        break;
+        
+    case '/campaigns/edit':
+        $id = (int)($_GET['id'] ?? 0);
+        if (!$id) {
+            redirect('/campaigns');
+        }
+        
+        $controller = new CampaignController();
+        $viewData = $controller->edit($id);
+        
+        if (!$viewData) {
+            http_response_code(404);
+            require BASE_PATH . '/src/Views/errors/404.php';
+            break;
+        }
+        
+        if ($requestMethod === 'POST') {
+            if (!verify_csrf($_POST['_csrf_token'] ?? null)) {
+                flash('error', 'Invalid request. Please try again.');
+            } else {
+                $result = $controller->update($id, $_POST);
+                if ($result['success']) {
+                    flash('success', 'Campaign updated successfully!');
+                    redirect('/campaigns/edit?id=' . $id);
+                } else {
+                    $viewData['errors'] = $result['errors'];
+                }
+            }
+        }
+        
+        extract($viewData);
+        require BASE_PATH . '/src/Views/campaigns/edit.php';
+        break;
+        
+    case '/campaigns/delete':
+        if ($requestMethod === 'POST') {
+            $id = (int)($_POST['id'] ?? 0);
+            if ($id && verify_csrf($_POST['_csrf_token'] ?? null)) {
+                $controller = new CampaignController();
+                $controller->delete($id);
+                flash('success', 'Campaign deleted successfully!');
+            }
+        }
+        redirect('/campaigns');
+        break;
+        
+    case '/settings':
+        require BASE_PATH . '/src/Views/settings.php';
+        break;
+        
+    default:
+        http_response_code(404);
+        require BASE_PATH . '/src/Views/errors/404.php';
+}

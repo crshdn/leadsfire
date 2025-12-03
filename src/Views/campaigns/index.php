@@ -2,35 +2,17 @@
 $pageTitle = 'Campaigns';
 $currentPage = 'campaigns';
 
-use LeadsFire\Services\Database;
+use LeadsFire\Controllers\CampaignController;
 
-// Get campaigns from database (if installed and connected)
+// Get campaigns from controller
 $campaigns = [];
+$trafficSources = [];
 try {
     if (is_installed()) {
-        $db = Database::getInstance();
-        $campaigns = $db->fetchAll("
-            SELECT 
-                c.CampaignID,
-                c.CampaignName,
-                c.CampaignKey,
-                c.Active,
-                c.DateAdded,
-                c.ModifyDate,
-                s.CPVSource as TrafficSource,
-                COALESCE(ct.Views, 0) as Views,
-                COALESCE(ct.Clicks, 0) as Clicks,
-                COALESCE(ct.Conversion, 0) as Conversions,
-                COALESCE(ct.Revenue, 0) as Revenue,
-                COALESCE(ct.Cost, 0) as Cost,
-                COALESCE(ct.Profit, 0) as Profit,
-                COALESCE(ct.ROI, 0) as ROI
-            FROM campaigns c
-            LEFT JOIN cpvsources s ON c.CPVSourceID = s.CPVSourceID
-            LEFT JOIN cachetotals ct ON c.CampaignID = ct.CampaignID
-            ORDER BY c.DateAdded DESC
-            LIMIT 100
-        ");
+        $controller = new CampaignController();
+        $data = $controller->index();
+        $campaigns = $data['campaigns'] ?? [];
+        $trafficSources = $data['trafficSources'] ?? [];
     }
 } catch (Exception $e) {
     // Database not ready yet
