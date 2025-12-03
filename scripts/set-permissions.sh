@@ -47,9 +47,15 @@ find "$APP_DIR" -type f -name "*.php" -exec chmod 644 {} \;
 chmod 640 "$APP_DIR/config/"*.php 2>/dev/null || true
 chown "$OWNER:$WEB_USER" "$APP_DIR/config/"*.php 2>/dev/null || true
 
-# Environment file - most restrictive
+# Environment file - writable during setup, then locked down after install
 if [ -f "$APP_DIR/.env" ]; then
-    chmod 640 "$APP_DIR/.env"
+    if [ -f "$APP_DIR/storage/.installed" ]; then
+        # After installation - read-only for web server
+        chmod 640 "$APP_DIR/.env"
+    else
+        # During installation - web server needs to write
+        chmod 660 "$APP_DIR/.env"
+    fi
     chown "$OWNER:$WEB_USER" "$APP_DIR/.env"
 fi
 

@@ -308,7 +308,10 @@ class Installer
      */
     public function markComplete(): bool
     {
-        $installedPath = dirname(__DIR__, 2) . '/storage/.installed';
+        $basePath = dirname(__DIR__, 2);
+        $installedPath = $basePath . '/storage/.installed';
+        $envPath = $basePath . '/.env';
+        
         $content = json_encode([
             'installed_at' => date('Y-m-d H:i:s'),
             'version' => '1.0.0',
@@ -320,6 +323,12 @@ class Installer
         }
         
         chmod($installedPath, 0600);
+        
+        // Lock down .env file after installation (read-only for web server)
+        if (file_exists($envPath)) {
+            chmod($envPath, 0640);
+        }
+        
         return true;
     }
     
