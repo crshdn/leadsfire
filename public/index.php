@@ -32,6 +32,8 @@ date_default_timezone_set(config('app.timezone', 'America/New_York'));
 use LeadsFire\Services\Auth;
 use LeadsFire\Services\Logger;
 use LeadsFire\Controllers\CampaignController;
+use LeadsFire\Controllers\TrafficSourceController;
+use LeadsFire\Controllers\AffiliateNetworkController;
 
 $auth = Auth::getInstance();
 
@@ -140,6 +142,52 @@ if (strpos($requestUri, '/api/') === 0) {
             $controller = new CampaignController();
             echo json_encode(['success' => $controller->toggleActive((int)$m[1])]);
             break;
+        
+        // Traffic Sources API
+        case 'traffic-sources':
+            $controller = new TrafficSourceController();
+            if ($requestMethod === 'GET') {
+                echo json_encode($controller->index());
+            } elseif ($requestMethod === 'POST') {
+                echo json_encode($controller->store($_POST));
+            }
+            break;
+            
+        case preg_match('/^traffic-sources\/(\d+)$/', $apiRoute, $m) ? true : false:
+            $controller = new TrafficSourceController();
+            $id = (int)$m[1];
+            if ($requestMethod === 'GET') {
+                echo json_encode($controller->show($id));
+            } elseif ($requestMethod === 'PUT' || $requestMethod === 'POST') {
+                parse_str(file_get_contents('php://input'), $data);
+                echo json_encode($controller->update($id, array_merge($_POST, $data)));
+            } elseif ($requestMethod === 'DELETE') {
+                echo json_encode(['success' => $controller->delete($id)]);
+            }
+            break;
+        
+        // Affiliate Networks API
+        case 'affiliate-networks':
+            $controller = new AffiliateNetworkController();
+            if ($requestMethod === 'GET') {
+                echo json_encode($controller->index());
+            } elseif ($requestMethod === 'POST') {
+                echo json_encode($controller->store($_POST));
+            }
+            break;
+            
+        case preg_match('/^affiliate-networks\/(\d+)$/', $apiRoute, $m) ? true : false:
+            $controller = new AffiliateNetworkController();
+            $id = (int)$m[1];
+            if ($requestMethod === 'GET') {
+                echo json_encode($controller->show($id));
+            } elseif ($requestMethod === 'PUT' || $requestMethod === 'POST') {
+                parse_str(file_get_contents('php://input'), $data);
+                echo json_encode($controller->update($id, array_merge($_POST, $data)));
+            } elseif ($requestMethod === 'DELETE') {
+                echo json_encode(['success' => $controller->delete($id)]);
+            }
+            break;
             
         default:
             http_response_code(404);
@@ -227,6 +275,14 @@ switch ($requestUri) {
         
     case '/settings':
         require BASE_PATH . '/src/Views/settings.php';
+        break;
+    
+    case '/traffic-sources':
+        require BASE_PATH . '/src/Views/traffic-sources/index.php';
+        break;
+    
+    case '/affiliate-networks':
+        require BASE_PATH . '/src/Views/affiliate-networks/index.php';
         break;
         
     default:
