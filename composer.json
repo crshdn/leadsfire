@@ -35,7 +35,14 @@
     },
     "scripts": {
         "post-install-cmd": [
-            "@php -r \"file_exists('.env') || copy('.env.example', '.env');\""
+            "@php -r \"file_exists('.env') || copy('.env.example', '.env');\"",
+            "@php -r \"file_put_contents('vendor/.htaccess', '<IfModule mod_authz_core.c>\\n    Require all denied\\n</IfModule>\\n<IfModule !mod_authz_core.c>\\n    Order deny,allow\\n    Deny from all\\n</IfModule>\\n');\""
+        ],
+        "post-update-cmd": [
+            "@php -r \"file_put_contents('vendor/.htaccess', '<IfModule mod_authz_core.c>\\n    Require all denied\\n</IfModule>\\n<IfModule !mod_authz_core.c>\\n    Order deny,allow\\n    Deny from all\\n</IfModule>\\n');\""
+        ],
+        "security-check": [
+            "@php -r \"echo 'Checking file permissions...\\n'; $files = ['.env' => '640', 'config/app.php' => '640', 'config/database.php' => '640']; foreach ($files as $f => $p) { if (file_exists($f)) { $perms = substr(sprintf('%o', fileperms($f)), -3); echo $f . ': ' . $perms . ($perms === $p ? ' ✓' : ' ✗ (should be ' . $p . ')') . '\\n'; } }\""
         ]
     },
     "minimum-stability": "stable",
