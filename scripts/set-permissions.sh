@@ -32,11 +32,11 @@ find "$APP_DIR" -type d -exec chmod 755 {} \;
 
 # Storage directories - web server needs write access
 chown -R "$OWNER:$WEB_USER" "$APP_DIR/storage"
-chmod 750 "$APP_DIR/storage"
-chmod 750 "$APP_DIR/storage/logs"
-chmod 750 "$APP_DIR/storage/cache"
-chmod 750 "$APP_DIR/storage/sessions"
-chmod 750 "$APP_DIR/storage/uploads"
+chmod 770 "$APP_DIR/storage"
+chmod 770 "$APP_DIR/storage/logs"
+chmod 770 "$APP_DIR/storage/cache"
+chmod 770 "$APP_DIR/storage/sessions"
+chmod 770 "$APP_DIR/storage/uploads"
 
 echo "Setting file permissions..."
 
@@ -92,7 +92,7 @@ echo "  Permissions Set Successfully!"
 echo "============================================"
 echo ""
 echo "Summary:"
-echo "  - Storage directories: 750 ($OWNER:$WEB_USER)"
+echo "  - Storage directories: 770 ($OWNER:$WEB_USER)"
 echo "  - Config files: 640 ($OWNER:$WEB_USER)"
 echo "  - .env file: 640 ($OWNER:$WEB_USER)"
 echo "  - SPEC.md: 600 ($OWNER only)"
