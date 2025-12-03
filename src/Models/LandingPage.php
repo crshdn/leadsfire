@@ -22,7 +22,7 @@ class LandingPage
     public function getAll(): array
     {
         return $this->db->fetchAll(
-            "SELECT * FROM predeflps ORDER BY PredefLPName ASC"
+            "SELECT * FROM predeflps WHERE Inactive = 0 ORDER BY LpName ASC"
         );
     }
     
@@ -32,7 +32,7 @@ class LandingPage
     public function find(int $id): ?array
     {
         return $this->db->fetch(
-            "SELECT * FROM predeflps WHERE PredefLPID = ?",
+            "SELECT * FROM predeflps WHERE PredefLpID = ?",
             [$id]
         );
     }
@@ -51,7 +51,7 @@ class LandingPage
      */
     public function update(int $id, array $data): bool
     {
-        return $this->db->update('predeflps', $data, 'PredefLPID = ?', [$id]) > 0;
+        return $this->db->update('predeflps', $data, 'PredefLpID = ?', [$id]) > 0;
     }
     
     /**
@@ -59,7 +59,7 @@ class LandingPage
      */
     public function delete(int $id): bool
     {
-        return $this->db->delete('predeflps', 'PredefLPID = ?', [$id]) > 0;
+        return $this->db->update('predeflps', ['Inactive' => 1], 'PredefLpID = ?', [$id]) > 0;
     }
     
     /**
@@ -68,8 +68,8 @@ class LandingPage
     public function getForSelect(): array
     {
         return $this->db->fetchAll(
-            "SELECT PredefLPID as id, PredefLPName as name, PredefLPURL as url 
-             FROM predeflps ORDER BY PredefLPName ASC"
+            "SELECT PredefLpID as id, LpName as name, LpUrl as url 
+             FROM predeflps WHERE Inactive = 0 ORDER BY LpName ASC"
         );
     }
 }

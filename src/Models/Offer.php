@@ -25,7 +25,8 @@ class Offer
             "SELECT o.*, a.Affiliate 
              FROM predefoffers o
              LEFT JOIN affiliatesources a ON o.AffiliateSourceID = a.AffiliateSourceID
-             ORDER BY o.PredefOfferName ASC"
+             WHERE o.Inactive = 0
+             ORDER BY o.OfferName ASC"
         );
     }
     
@@ -58,11 +59,11 @@ class Offer
     }
     
     /**
-     * Delete an offer
+     * Delete an offer (soft delete)
      */
     public function delete(int $id): bool
     {
-        return $this->db->delete('predefoffers', 'PredefOfferID = ?', [$id]) > 0;
+        return $this->db->update('predefoffers', ['Inactive' => 1], 'PredefOfferID = ?', [$id]) > 0;
     }
     
     /**
@@ -71,8 +72,8 @@ class Offer
     public function getForSelect(): array
     {
         return $this->db->fetchAll(
-            "SELECT PredefOfferID as id, PredefOfferName as name, PredefOfferURL as url, Payout as payout
-             FROM predefoffers ORDER BY PredefOfferName ASC"
+            "SELECT PredefOfferID as id, OfferName as name, OfferUrl as url, Payout as payout
+             FROM predefoffers WHERE Inactive = 0 ORDER BY OfferName ASC"
         );
     }
 }

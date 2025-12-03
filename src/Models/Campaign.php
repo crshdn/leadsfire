@@ -192,11 +192,11 @@ class Campaign
     public function getDestinations(int $campaignId): array
     {
         return $this->db->fetchAll(
-            "SELECT d.*, p.PredefLPName, p.PredefLPURL 
+            "SELECT d.*, p.LpName, p.LpUrl 
              FROM destinations d
-             LEFT JOIN predeflps p ON d.PredefLPID = p.PredefLPID
-             WHERE d.CampaignID = ?
-             ORDER BY d.Weight DESC",
+             LEFT JOIN predeflps p ON d.PredefLpID = p.PredefLpID
+             WHERE d.CampaignID = ? AND d.Inactive = 0
+             ORDER BY d.Share DESC",
             [$campaignId]
         );
     }
@@ -207,12 +207,12 @@ class Campaign
     public function getOffers(int $campaignId): array
     {
         return $this->db->fetchAll(
-            "SELECT o.*, po.PredefOfferName, po.PredefOfferURL, a.Affiliate
-             FROM offers o
-             LEFT JOIN predefoffers po ON o.PredefOfferID = po.PredefOfferID
-             LEFT JOIN affiliatesources a ON o.AffiliateSourceID = a.AffiliateSourceID
-             WHERE o.CampaignID = ?
-             ORDER BY o.Weight DESC",
+            "SELECT d.*, po.OfferName, po.OfferUrl, a.Affiliate
+             FROM destinations d
+             LEFT JOIN predefoffers po ON d.PredefOfferID = po.PredefOfferID
+             LEFT JOIN affiliatesources a ON d.AffiliateSourceID = a.AffiliateSourceID
+             WHERE d.CampaignID = ? AND d.Inactive = 0 AND d.Level = 2
+             ORDER BY d.Share DESC",
             [$campaignId]
         );
     }
