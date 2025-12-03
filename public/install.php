@@ -5,10 +5,6 @@
  * This script handles the initial setup of the application.
  */
 
-// Error reporting for installation
-error_reporting(E_ALL);
-ini_set('display_errors', 1);
-
 // Define base path
 define('BASE_PATH', dirname(__DIR__));
 
@@ -29,105 +25,162 @@ $installer = new Installer();
 
 // Handle AJAX requests
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+    // Start output buffering to catch any PHP errors/warnings
+    ob_start();
+    
+    // Custom error handler to capture errors
+    $phpErrors = [];
+    set_error_handler(function($severity, $message, $file, $line) use (&$phpErrors) {
+        $phpErrors[] = [
+            'type' => $severity,
+            'message' => $message,
+            'file' => basename($file),
+            'line' => $line
+        ];
+        return true; // Don't execute PHP's internal error handler
+    });
+    
     header('Content-Type: application/json');
     
-    switch ($_POST['action']) {
-        case 'check_requirements':
-            echo json_encode([
-                'success' => true,
-                'requirements' => $installer->checkRequirements(),
-            ]);
-            exit;
+    // Helper function to send JSON response with any captured errors
+    $sendResponse = function($data) use (&$phpErrors) {
+        // Clear output buffer and capture any stray output
+        $strayOutput = ob_get_clean();
+        
+        // Restore error handler
+        restore_error_handler();
+        
+        // Add PHP errors if any occurred
+        if (!empty($phpErrors)) {
+            $data['php_errors'] = array_map(function($err) {
+                return "{$err['message']} in {$err['file']} on line {$err['line']}";
+            }, $phpErrors);
             
-        case 'test_database':
-            $config = [
-                'host' => $_POST['db_host'] ?? 'localhost',
-                'port' => (int)($_POST['db_port'] ?? 3306),
-                'database' => $_POST['db_database'] ?? '',
-                'username' => $_POST['db_username'] ?? '',
-                'password' => $_POST['db_password'] ?? '',
-            ];
-            echo json_encode($installer->testDatabaseConnection($config));
-            exit;
-            
-        case 'install':
-            $dbConfig = [
-                'host' => $_POST['db_host'] ?? 'localhost',
-                'port' => (int)($_POST['db_port'] ?? 3306),
-                'database' => $_POST['db_database'] ?? '',
-                'username' => $_POST['db_username'] ?? '',
-                'password' => $_POST['db_password'] ?? '',
-            ];
-            
-            $steps = [];
-            
-            // Step 1: Create database
-            if ($installer->createDatabase($dbConfig)) {
-                $steps[] = ['step' => 'Create database', 'success' => true];
+            // If we had errors but success was true, add a warning
+            if ($data['success'] ?? false) {
+                $data['warnings'] = $data['php_errors'];
+                unset($data['php_errors']);
             } else {
-                echo json_encode(['success' => false, 'errors' => $installer->getErrors(), 'steps' => $steps]);
-                exit;
+                // Add PHP errors to the errors array
+                if (!isset($data['errors'])) {
+                    $data['errors'] = [];
+                }
+                $data['errors'] = array_merge($data['errors'], $data['php_errors']);
+                unset($data['php_errors']);
             }
-            
-            // Step 2: Import schema
-            if ($installer->importSchema($dbConfig)) {
-                $steps[] = ['step' => 'Import database schema', 'success' => true];
-            } else {
-                echo json_encode(['success' => false, 'errors' => $installer->getErrors(), 'steps' => $steps]);
-                exit;
-            }
-            
-            // Step 3: Create admin user
-            if ($installer->createAdminUser(
-                $dbConfig,
-                $_POST['admin_username'] ?? 'admin',
-                $_POST['admin_password'] ?? '',
-                $_POST['admin_email'] ?? ''
-            )) {
-                $steps[] = ['step' => 'Create admin user', 'success' => true];
-            } else {
-                echo json_encode(['success' => false, 'errors' => $installer->getErrors(), 'steps' => $steps]);
-                exit;
-            }
-            
-            // Step 4: Generate .env file
-            $envSettings = [
-                'app_name' => $_POST['app_name'] ?? 'LeadsFire Click Tracker',
-                'app_url' => $_POST['app_url'] ?? '',
-                'app_env' => 'production',
-                'app_debug' => 'false',
-                'timezone' => $_POST['timezone'] ?? 'America/New_York',
-                'db_host' => $dbConfig['host'],
-                'db_port' => $dbConfig['port'],
-                'db_database' => $dbConfig['database'],
-                'db_username' => $dbConfig['username'],
-                'db_password' => $dbConfig['password'],
-                'allowed_ips' => $_POST['allowed_ips'] ?? '',
-                'mail_from' => $_POST['mail_from'] ?? '',
-                'mail_to' => $_POST['admin_email'] ?? '',
-            ];
-            
-            if ($installer->generateEnvFile($envSettings)) {
-                $steps[] = ['step' => 'Generate configuration', 'success' => true];
-            } else {
-                echo json_encode(['success' => false, 'errors' => $installer->getErrors(), 'steps' => $steps]);
-                exit;
-            }
-            
-            // Step 5: Mark as installed
-            if ($installer->markComplete()) {
-                $steps[] = ['step' => 'Complete installation', 'success' => true];
-            } else {
-                echo json_encode(['success' => false, 'errors' => $installer->getErrors(), 'steps' => $steps]);
-                exit;
-            }
-            
-            echo json_encode(['success' => true, 'steps' => $steps]);
-            exit;
-    }
+        }
+        
+        // If there was stray output (like PHP errors that slipped through), include it
+        if (!empty($strayOutput) && trim($strayOutput) !== '') {
+            $data['debug_output'] = $strayOutput;
+        }
+        
+        echo json_encode($data);
+        exit;
+    };
     
-    echo json_encode(['success' => false, 'error' => 'Unknown action']);
-    exit;
+    try {
+        switch ($_POST['action']) {
+            case 'check_requirements':
+                $sendResponse([
+                    'success' => true,
+                    'requirements' => $installer->checkRequirements(),
+                ]);
+                
+            case 'test_database':
+                $config = [
+                    'host' => $_POST['db_host'] ?? 'localhost',
+                    'port' => (int)($_POST['db_port'] ?? 3306),
+                    'database' => $_POST['db_database'] ?? '',
+                    'username' => $_POST['db_username'] ?? '',
+                    'password' => $_POST['db_password'] ?? '',
+                ];
+                $sendResponse($installer->testDatabaseConnection($config));
+                
+            case 'install':
+                $dbConfig = [
+                    'host' => $_POST['db_host'] ?? 'localhost',
+                    'port' => (int)($_POST['db_port'] ?? 3306),
+                    'database' => $_POST['db_database'] ?? '',
+                    'username' => $_POST['db_username'] ?? '',
+                    'password' => $_POST['db_password'] ?? '',
+                ];
+                
+                $steps = [];
+                
+                // Step 1: Create database
+                if ($installer->createDatabase($dbConfig)) {
+                    $steps[] = ['step' => 'Create database', 'success' => true];
+                } else {
+                    $sendResponse(['success' => false, 'errors' => $installer->getErrors(), 'steps' => $steps]);
+                }
+                
+                // Step 2: Import schema
+                if ($installer->importSchema($dbConfig)) {
+                    $steps[] = ['step' => 'Import database schema', 'success' => true];
+                } else {
+                    $sendResponse(['success' => false, 'errors' => $installer->getErrors(), 'steps' => $steps]);
+                }
+                
+                // Step 3: Create admin user
+                if ($installer->createAdminUser(
+                    $dbConfig,
+                    $_POST['admin_username'] ?? 'admin',
+                    $_POST['admin_password'] ?? '',
+                    $_POST['admin_email'] ?? ''
+                )) {
+                    $steps[] = ['step' => 'Create admin user', 'success' => true];
+                } else {
+                    $sendResponse(['success' => false, 'errors' => $installer->getErrors(), 'steps' => $steps]);
+                }
+                
+                // Step 4: Generate .env file
+                $envSettings = [
+                    'app_name' => $_POST['app_name'] ?? 'LeadsFire Click Tracker',
+                    'app_url' => $_POST['app_url'] ?? '',
+                    'app_env' => 'production',
+                    'app_debug' => 'false',
+                    'timezone' => $_POST['timezone'] ?? 'America/New_York',
+                    'db_host' => $dbConfig['host'],
+                    'db_port' => $dbConfig['port'],
+                    'db_database' => $dbConfig['database'],
+                    'db_username' => $dbConfig['username'],
+                    'db_password' => $dbConfig['password'],
+                    'allowed_ips' => $_POST['allowed_ips'] ?? '',
+                    'mail_from' => $_POST['mail_from'] ?? '',
+                    'mail_to' => $_POST['admin_email'] ?? '',
+                ];
+                
+                if ($installer->generateEnvFile($envSettings)) {
+                    $steps[] = ['step' => 'Generate configuration', 'success' => true];
+                } else {
+                    $sendResponse(['success' => false, 'errors' => $installer->getErrors(), 'steps' => $steps]);
+                }
+                
+                // Step 5: Mark as installed
+                if ($installer->markComplete()) {
+                    $steps[] = ['step' => 'Complete installation', 'success' => true];
+                } else {
+                    $sendResponse(['success' => false, 'errors' => $installer->getErrors(), 'steps' => $steps]);
+                }
+                
+                $sendResponse(['success' => true, 'steps' => $steps]);
+        }
+        
+        $sendResponse(['success' => false, 'error' => 'Unknown action']);
+        
+    } catch (Throwable $e) {
+        // Catch any uncaught exceptions
+        $sendResponse([
+            'success' => false,
+            'errors' => [$e->getMessage()],
+            'error_details' => [
+                'type' => get_class($e),
+                'file' => basename($e->getFile()),
+                'line' => $e->getLine()
+            ]
+        ]);
+    }
 }
 
 // Get requirements for initial display
@@ -751,20 +804,75 @@ $timezones = Installer::getTimezones();
                 method: 'POST',
                 body: formData
             })
-            .then(res => res.json())
-            .then(data => {
+            .then(res => res.text())
+            .then(text => {
                 clearInterval(interval);
                 
-                // Update all progress icons
-                data.steps.forEach((s, i) => {
-                    const icon = document.getElementById(`progress_${i + 1}`);
-                    icon.classList.remove('pending', 'running');
-                    icon.classList.add(s.success ? 'success' : 'error');
-                    icon.querySelector('.spinner').style.display = 'none';
-                    icon.innerHTML = s.success 
-                        ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg>'
-                        : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>';
-                });
+                // Try to parse as JSON
+                let data;
+                try {
+                    data = JSON.parse(text);
+                } catch (e) {
+                    // Not valid JSON - likely a PHP error
+                    const resultDiv = document.getElementById('install_result');
+                    
+                    // Extract meaningful error from PHP output
+                    let errorMessage = 'A server error occurred during installation.';
+                    
+                    // Try to extract PHP error message
+                    const warningMatch = text.match(/<b>Warning<\/b>:\s*([^<]+)/);
+                    const fatalMatch = text.match(/<b>Fatal error<\/b>:\s*([^<]+)/);
+                    const errorMatch = text.match(/Error[:\s]+([^<\n]+)/i);
+                    
+                    if (fatalMatch) {
+                        errorMessage = 'Fatal Error: ' + fatalMatch[1].trim();
+                    } else if (warningMatch) {
+                        errorMessage = 'Warning: ' + warningMatch[1].trim();
+                    } else if (errorMatch) {
+                        errorMessage = errorMatch[1].trim();
+                    } else if (text.includes('Permission denied')) {
+                        errorMessage = 'Permission denied. Please check file permissions and try again.';
+                    } else if (text.includes('failed to open stream')) {
+                        errorMessage = 'Could not write to file. Please check directory permissions.';
+                    }
+                    
+                    // Check for common issues and provide helpful hints
+                    let hint = '';
+                    if (text.includes('.env') && text.includes('Permission denied')) {
+                        hint = '<br><br><strong>Hint:</strong> Run <code>chmod 660 .env</code> to fix .env file permissions.';
+                    } else if (text.includes('storage') && text.includes('Permission denied')) {
+                        hint = '<br><br><strong>Hint:</strong> Run <code>sudo ./scripts/set-permissions.sh</code> to fix storage permissions.';
+                    }
+                    
+                    resultDiv.innerHTML = `
+                        <div class="alert alert-danger">
+                            <strong>Installation Error</strong><br>
+                            ${errorMessage}${hint}
+                        </div>
+                        <details style="margin-top: 1rem; padding: 1rem; background: rgba(0,0,0,0.3); border-radius: 8px;">
+                            <summary style="cursor: pointer; color: var(--text-muted);">Show Technical Details</summary>
+                            <pre style="margin-top: 1rem; padding: 1rem; background: rgba(0,0,0,0.5); border-radius: 4px; overflow-x: auto; font-size: 12px; color: #ff6b6b;">${text.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>
+                        </details>
+                        <div class="install-actions" style="margin-top: 1rem;">
+                            <button type="button" class="btn btn-secondary" onclick="showStep(3)">Back</button>
+                            <button type="button" class="btn btn-primary" onclick="runInstallation()">Retry</button>
+                        </div>
+                    `;
+                    return;
+                }
+                
+                // Valid JSON response - process normally
+                if (data.steps) {
+                    data.steps.forEach((s, i) => {
+                        const icon = document.getElementById(`progress_${i + 1}`);
+                        icon.classList.remove('pending', 'running');
+                        icon.classList.add(s.success ? 'success' : 'error');
+                        icon.querySelector('.spinner').style.display = 'none';
+                        icon.innerHTML = s.success 
+                            ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg>'
+                            : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>';
+                    });
+                }
                 
                 const resultDiv = document.getElementById('install_result');
                 
@@ -795,8 +903,12 @@ $timezones = Installer::getTimezones();
                 clearInterval(interval);
                 document.getElementById('install_result').innerHTML = `
                     <div class="alert alert-danger">
-                        <strong>Error</strong><br>
-                        ${err.message}
+                        <strong>Network Error</strong><br>
+                        Could not connect to the server. Please check your connection and try again.
+                        <br><small style="color: var(--text-muted);">${err.message}</small>
+                    </div>
+                    <div class="install-actions" style="margin-top: 1rem;">
+                        <button type="button" class="btn btn-primary" onclick="runInstallation()">Retry</button>
                     </div>
                 `;
             });
