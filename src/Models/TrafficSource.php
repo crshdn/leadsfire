@@ -5,7 +5,7 @@ namespace LeadsFire\Models;
 use LeadsFire\Services\Database;
 
 /**
- * Traffic Source Model (cpvsources table)
+ * Traffic Source Model
  */
 class TrafficSource
 {
@@ -22,7 +22,17 @@ class TrafficSource
     public function getAll(): array
     {
         return $this->db->fetchAll(
-            "SELECT * FROM cpvsources ORDER BY CPVSource ASC"
+            "SELECT * FROM traffic_sources ORDER BY name ASC"
+        );
+    }
+    
+    /**
+     * Get active traffic sources for select dropdown
+     */
+    public function getForSelect(): array
+    {
+        return $this->db->fetchAll(
+            "SELECT id, name FROM traffic_sources WHERE is_active = 1 ORDER BY name ASC"
         );
     }
     
@@ -32,8 +42,19 @@ class TrafficSource
     public function find(int $id): ?array
     {
         return $this->db->fetch(
-            "SELECT * FROM cpvsources WHERE CPVSourceID = ?",
+            "SELECT * FROM traffic_sources WHERE id = ?",
             [$id]
+        );
+    }
+    
+    /**
+     * Get traffic source by slug
+     */
+    public function findBySlug(string $slug): ?array
+    {
+        return $this->db->fetch(
+            "SELECT * FROM traffic_sources WHERE slug = ?",
+            [$slug]
         );
     }
     
@@ -42,8 +63,10 @@ class TrafficSource
      */
     public function create(array $data): int
     {
-        $data['DateAdded'] = date('Y-m-d H:i:s');
-        return $this->db->insert('cpvsources', $data);
+        $data['slug'] = $this->generateSlug($data['name']);
+        $data['created_at'] = date('Y-m-d H:i:s');
+        
+        return $this->db->insert('traffic_sources', $data);
     }
     
     /**
@@ -51,7 +74,8 @@ class TrafficSource
      */
     public function update(int $id, array $data): bool
     {
-        return $this->db->update('cpvsources', $data, 'CPVSourceID = ?', [$id]) > 0;
+        $data['updated_at'] = date('Y-m-d H:i:s');
+        return $this->db->update('traffic_sources', $data, 'id = ?', [$id]) > 0;
     }
     
     /**
@@ -59,17 +83,26 @@ class TrafficSource
      */
     public function delete(int $id): bool
     {
-        return $this->db->delete('cpvsources', 'CPVSourceID = ?', [$id]) > 0;
+        return $this->db->delete('traffic_sources', 'id = ?', [$id]) > 0;
     }
     
     /**
-     * Get for dropdown select
+     * Generate URL-safe slug from name
      */
-    public function getForSelect(): array
+    private function generateSlug(string $name): string
     {
-        return $this->db->fetchAll(
-            "SELECT CPVSourceID as id, CPVSource as name FROM cpvsources ORDER BY CPVSource ASC"
-        );
+        $slug = strtolower(trim($name));
+        $slug = preg_replace('/[^a-z0-9]+/', '-', $slug);
+        $slug = trim($slug, '-');
+        
+        // Ensure uniqueness
+        $baseSlug = $slug;
+        $counter = 1;
+        while ($this->findBySlug($slug) !== null) {
+            $slug = $baseSlug . '-' . $counter;
+            $counter++;
+        }
+        
+        return $slug;
     }
 }
-

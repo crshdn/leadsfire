@@ -5,7 +5,7 @@ namespace LeadsFire\Models;
 use LeadsFire\Services\Database;
 
 /**
- * Affiliate Network Model (affiliatesources table)
+ * Affiliate Network Model
  */
 class AffiliateNetwork
 {
@@ -22,7 +22,17 @@ class AffiliateNetwork
     public function getAll(): array
     {
         return $this->db->fetchAll(
-            "SELECT * FROM affiliatesources ORDER BY Affiliate ASC"
+            "SELECT * FROM affiliate_networks ORDER BY name ASC"
+        );
+    }
+    
+    /**
+     * Get active affiliate networks for select dropdown
+     */
+    public function getForSelect(): array
+    {
+        return $this->db->fetchAll(
+            "SELECT id, name FROM affiliate_networks WHERE is_active = 1 ORDER BY name ASC"
         );
     }
     
@@ -32,7 +42,7 @@ class AffiliateNetwork
     public function find(int $id): ?array
     {
         return $this->db->fetch(
-            "SELECT * FROM affiliatesources WHERE AffiliateSourceID = ?",
+            "SELECT * FROM affiliate_networks WHERE id = ?",
             [$id]
         );
     }
@@ -42,8 +52,10 @@ class AffiliateNetwork
      */
     public function create(array $data): int
     {
-        $data['DateAdded'] = date('Y-m-d H:i:s');
-        return $this->db->insert('affiliatesources', $data);
+        $data['slug'] = $this->generateSlug($data['name']);
+        $data['created_at'] = date('Y-m-d H:i:s');
+        
+        return $this->db->insert('affiliate_networks', $data);
     }
     
     /**
@@ -51,7 +63,8 @@ class AffiliateNetwork
      */
     public function update(int $id, array $data): bool
     {
-        return $this->db->update('affiliatesources', $data, 'AffiliateSourceID = ?', [$id]) > 0;
+        $data['updated_at'] = date('Y-m-d H:i:s');
+        return $this->db->update('affiliate_networks', $data, 'id = ?', [$id]) > 0;
     }
     
     /**
@@ -59,17 +72,18 @@ class AffiliateNetwork
      */
     public function delete(int $id): bool
     {
-        return $this->db->delete('affiliatesources', 'AffiliateSourceID = ?', [$id]) > 0;
+        return $this->db->delete('affiliate_networks', 'id = ?', [$id]) > 0;
     }
     
     /**
-     * Get for dropdown select
+     * Generate URL-safe slug from name
      */
-    public function getForSelect(): array
+    private function generateSlug(string $name): string
     {
-        return $this->db->fetchAll(
-            "SELECT AffiliateSourceID as id, Affiliate as name FROM affiliatesources ORDER BY Affiliate ASC"
-        );
+        $slug = strtolower(trim($name));
+        $slug = preg_replace('/[^a-z0-9]+/', '-', $slug);
+        $slug = trim($slug, '-');
+        
+        return $slug;
     }
 }
-

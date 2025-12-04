@@ -5,7 +5,9 @@ namespace LeadsFire\Models;
 use LeadsFire\Services\Database;
 
 /**
- * Stats Model - Dashboard and reporting statistics
+ * Stats Model
+ * 
+ * Handles all statistics-related database operations
  */
 class Stats
 {
@@ -17,164 +19,207 @@ class Stats
     }
     
     /**
-     * Get today's summary stats
+     * Get dashboard stats for a date range
      */
-    public function getTodayStats(): array
+    public function getDashboardStats(?string $startDate = null, ?string $endDate = null): array
     {
-        $today = date('Y-m-d');
-        $yesterday = date('Y-m-d', strtotime('-1 day'));
+        $sql = "SELECT 
+                    COALESCE(SUM(views), 0) as total_views,
+                    COALESCE(SUM(unique_views), 0) as total_unique_views,
+                    COALESCE(SUM(actions), 0) as total_actions,
+                    COALESCE(SUM(conversions), 0) as total_conversions,
+                    COALESCE(SUM(revenue), 0) as total_revenue,
+                    COALESCE(SUM(cost), 0) as total_cost
+                FROM stats_daily";
         
-        // Today's stats
-        $todayStats = $this->db->fetch(
-            "SELECT 
-                COALESCE(SUM(Views), 0) as views,
-                COALESCE(SUM(Clicks), 0) as clicks,
-                COALESCE(SUM(Conversion), 0) as conversions,
-                COALESCE(SUM(Revenue), 0) as revenue,
-                COALESCE(SUM(Cost), 0) as cost
-             FROM cachecampaign
-             WHERE DateInterval = ?",
-            [$today]
-        ) ?: ['views' => 0, 'clicks' => 0, 'conversions' => 0, 'revenue' => 0, 'cost' => 0];
+        $params = [];
         
-        // Yesterday's stats for comparison
-        $yesterdayStats = $this->db->fetch(
-            "SELECT 
-                COALESCE(SUM(Views), 0) as views,
-                COALESCE(SUM(Clicks), 0) as clicks,
-                COALESCE(SUM(Conversion), 0) as conversions,
-                COALESCE(SUM(Revenue), 0) as revenue,
-                COALESCE(SUM(Cost), 0) as cost
-             FROM cachecampaign
-             WHERE DateInterval = ?",
-            [$yesterday]
-        ) ?: ['views' => 0, 'clicks' => 0, 'conversions' => 0, 'revenue' => 0, 'cost' => 0];
+        if ($startDate && $endDate) {
+            $sql .= " WHERE date BETWEEN ? AND ?";
+            $params = [$startDate, $endDate];
+        }
         
-        // Calculate changes
-        $todayStats['profit'] = $todayStats['revenue'] - $todayStats['cost'];
-        $yesterdayStats['profit'] = $yesterdayStats['revenue'] - $yesterdayStats['cost'];
+        $result = $this->db->fetch($sql, $params);
         
-        $todayStats['views_change'] = $this->calculateChange($todayStats['views'], $yesterdayStats['views']);
-        $todayStats['clicks_change'] = $this->calculateChange($todayStats['clicks'], $yesterdayStats['clicks']);
-        $todayStats['conversions_change'] = $this->calculateChange($todayStats['conversions'], $yesterdayStats['conversions']);
-        $todayStats['revenue_change'] = $todayStats['revenue'] - $yesterdayStats['revenue'];
-        $todayStats['profit_change'] = $todayStats['profit'] - $yesterdayStats['profit'];
+        if ($result) {
+            $result['total_profit'] = $result['total_revenue'] - $result['total_cost'];
+            $result['roi'] = $result['total_cost'] > 0 
+                ? (($result['total_revenue'] - $result['total_cost']) / $result['total_cost']) * 100 
+                : 0;
+            $result['epc'] = $result['total_views'] > 0 
+                ? $result['total_revenue'] / $result['total_views'] 
+                : 0;
+            $result['cvr'] = $result['total_views'] > 0 
+                ? ($result['total_conversions'] / $result['total_views']) * 100 
+                : 0;
+        }
         
-        return $todayStats;
-    }
-    
-    /**
-     * Get stats for date range
-     */
-    public function getDateRangeStats(string $startDate, string $endDate): array
-    {
-        return $this->db->fetchAll(
-            "SELECT 
-                DateInterval as date,
-                COALESCE(SUM(Views), 0) as views,
-                COALESCE(SUM(Clicks), 0) as clicks,
-                COALESCE(SUM(Conversion), 0) as conversions,
-                COALESCE(SUM(Revenue), 0) as revenue,
-                COALESCE(SUM(Cost), 0) as cost,
-                COALESCE(SUM(Revenue) - SUM(Cost), 0) as profit
-             FROM cachecampaign
-             WHERE DateInterval BETWEEN ? AND ?
-             GROUP BY DateInterval
-             ORDER BY DateInterval ASC",
-            [$startDate, $endDate]
-        );
-    }
-    
-    /**
-     * Get quick stats (counts)
-     */
-    public function getQuickStats(): array
-    {
-        $activeCampaigns = $this->db->fetchColumn(
-            "SELECT COUNT(*) FROM campaigns WHERE Active = 1"
-        ) ?: 0;
-        
-        $totalCampaigns = $this->db->fetchColumn(
-            "SELECT COUNT(*) FROM campaigns"
-        ) ?: 0;
-        
-        $trafficSources = $this->db->fetchColumn(
-            "SELECT COUNT(*) FROM cpvsources"
-        ) ?: 0;
-        
-        $affiliateNetworks = $this->db->fetchColumn(
-            "SELECT COUNT(*) FROM affiliatesources"
-        ) ?: 0;
-        
-        $landingPages = $this->db->fetchColumn(
-            "SELECT COUNT(*) FROM predeflps"
-        ) ?: 0;
-        
-        return [
-            'active_campaigns' => (int)$activeCampaigns,
-            'total_campaigns' => (int)$totalCampaigns,
-            'traffic_sources' => (int)$trafficSources,
-            'affiliate_networks' => (int)$affiliateNetworks,
-            'landing_pages' => (int)$landingPages,
+        return $result ?: [
+            'total_views' => 0, 'total_unique_views' => 0, 'total_actions' => 0,
+            'total_conversions' => 0, 'total_revenue' => 0, 'total_cost' => 0,
+            'total_profit' => 0, 'roi' => 0, 'epc' => 0, 'cvr' => 0
         ];
     }
     
     /**
-     * Get top campaigns by profit
+     * Get stats trend by day
      */
-    public function getTopCampaigns(int $limit = 10, string $startDate = null, string $endDate = null): array
+    public function getTrend(?string $startDate = null, ?string $endDate = null): array
     {
-        $startDate = $startDate ?? date('Y-m-d', strtotime('-30 days'));
-        $endDate = $endDate ?? date('Y-m-d');
+        $sql = "SELECT 
+                    date,
+                    SUM(views) as views,
+                    SUM(conversions) as conversions,
+                    SUM(revenue) as revenue,
+                    SUM(cost) as cost,
+                    SUM(revenue - cost) as profit
+                FROM stats_daily";
         
-        return $this->db->fetchAll(
-            "SELECT 
-                c.CampaignID,
-                c.CampaignName,
-                c.CampaignKey,
-                c.Active,
-                s.CPVSource as TrafficSource,
-                COALESCE(SUM(cc.Views), 0) as Views,
-                COALESCE(SUM(cc.Clicks), 0) as Clicks,
-                COALESCE(SUM(cc.Conversion), 0) as Conversions,
-                COALESCE(SUM(cc.Revenue), 0) as Revenue,
-                COALESCE(SUM(cc.Cost), 0) as Cost,
-                COALESCE(SUM(cc.Revenue) - SUM(cc.Cost), 0) as Profit,
-                CASE WHEN SUM(cc.Cost) > 0 
-                     THEN ((SUM(cc.Revenue) - SUM(cc.Cost)) / SUM(cc.Cost)) * 100 
-                     ELSE 0 END as ROI
-             FROM campaigns c
-             LEFT JOIN cpvsources s ON c.CPVSourceID = s.CPVSourceID
-             LEFT JOIN cachecampaign cc ON c.CampaignID = cc.CampaignID 
-                AND cc.DateInterval BETWEEN ? AND ?
-             GROUP BY c.CampaignID
-             ORDER BY Profit DESC
-             LIMIT ?",
-            [$startDate, $endDate, $limit]
-        );
+        $params = [];
+        
+        if ($startDate && $endDate) {
+            $sql .= " WHERE date BETWEEN ? AND ?";
+            $params = [$startDate, $endDate];
+        }
+        
+        $sql .= " GROUP BY date ORDER BY date ASC";
+        
+        return $this->db->fetchAll($sql, $params);
     }
     
     /**
-     * Get hourly stats for today
+     * Get top campaigns by a metric
      */
-    public function getHourlyStats(): array
+    public function getTopCampaigns(int $limit = 10, string $metric = 'profit', ?string $startDate = null, ?string $endDate = null): array
+    {
+        $validMetrics = ['views', 'conversions', 'revenue', 'cost', 'profit'];
+        if (!in_array($metric, $validMetrics)) {
+            $metric = 'profit';
+        }
+        
+        $orderBy = $metric === 'profit' ? '(SUM(sd.revenue) - SUM(sd.cost))' : "SUM(sd.$metric)";
+        
+        $sql = "SELECT 
+                    c.id,
+                    c.name,
+                    c.key_code,
+                    COALESCE(SUM(sd.views), 0) as views,
+                    COALESCE(SUM(sd.conversions), 0) as conversions,
+                    COALESCE(SUM(sd.revenue), 0) as revenue,
+                    COALESCE(SUM(sd.cost), 0) as cost,
+                    COALESCE(SUM(sd.revenue) - SUM(sd.cost), 0) as profit
+                FROM campaigns c
+                LEFT JOIN stats_daily sd ON c.id = sd.campaign_id";
+        
+        $params = [];
+        
+        if ($startDate && $endDate) {
+            $sql .= " AND sd.date BETWEEN ? AND ?";
+            $params = [$startDate, $endDate];
+        }
+        
+        $sql .= " WHERE c.is_active = 1
+                  GROUP BY c.id
+                  ORDER BY $orderBy DESC
+                  LIMIT ?";
+        $params[] = $limit;
+        
+        return $this->db->fetchAll($sql, $params);
+    }
+    
+    /**
+     * Get stats by traffic source
+     */
+    public function getByTrafficSource(?string $startDate = null, ?string $endDate = null): array
+    {
+        $sql = "SELECT 
+                    ts.id,
+                    ts.name,
+                    COALESCE(SUM(sd.views), 0) as views,
+                    COALESCE(SUM(sd.conversions), 0) as conversions,
+                    COALESCE(SUM(sd.revenue), 0) as revenue,
+                    COALESCE(SUM(sd.cost), 0) as cost,
+                    COALESCE(SUM(sd.revenue) - SUM(sd.cost), 0) as profit
+                FROM traffic_sources ts
+                LEFT JOIN campaigns c ON ts.id = c.traffic_source_id
+                LEFT JOIN stats_daily sd ON c.id = sd.campaign_id";
+        
+        $params = [];
+        
+        if ($startDate && $endDate) {
+            $sql .= " AND sd.date BETWEEN ? AND ?";
+            $params = [$startDate, $endDate];
+        }
+        
+        $sql .= " GROUP BY ts.id ORDER BY profit DESC";
+        
+        return $this->db->fetchAll($sql, $params);
+    }
+    
+    /**
+     * Update daily stats cache for a campaign
+     */
+    public function updateDailyStats(int $campaignId, string $date): void
+    {
+        // Calculate stats from clicks table
+        $stats = $this->db->fetch(
+            "SELECT 
+                COUNT(*) as views,
+                SUM(is_unique) as unique_views,
+                SUM(CASE WHEN engage_time IS NOT NULL THEN 1 ELSE 0 END) as engagements,
+                SUM(CASE WHEN action_time IS NOT NULL THEN 1 ELSE 0 END) as actions,
+                SUM(CASE WHEN conversion_time IS NOT NULL THEN 1 ELSE 0 END) as conversions,
+                COALESCE(SUM(revenue), 0) as revenue,
+                COALESCE(SUM(cost), 0) as cost
+             FROM clicks
+             WHERE campaign_id = ? AND DATE(view_time) = ?",
+            [$campaignId, $date]
+        );
+        
+        if ($stats) {
+            $this->db->query(
+                "INSERT INTO stats_daily (campaign_id, date, views, unique_views, engagements, actions, conversions, revenue, cost)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 ON DUPLICATE KEY UPDATE
+                    views = VALUES(views),
+                    unique_views = VALUES(unique_views),
+                    engagements = VALUES(engagements),
+                    actions = VALUES(actions),
+                    conversions = VALUES(conversions),
+                    revenue = VALUES(revenue),
+                    cost = VALUES(cost)",
+                [
+                    $campaignId, $date,
+                    $stats['views'] ?? 0,
+                    $stats['unique_views'] ?? 0,
+                    $stats['engagements'] ?? 0,
+                    $stats['actions'] ?? 0,
+                    $stats['conversions'] ?? 0,
+                    $stats['revenue'] ?? 0,
+                    $stats['cost'] ?? 0
+                ]
+            );
+        }
+    }
+    
+    /**
+     * Get today's real-time stats (from clicks table directly)
+     */
+    public function getTodayStats(): array
     {
         $today = date('Y-m-d');
         
-        // This would require a more granular cache table
-        // For now, return empty array - can be implemented later
-        return [];
-    }
-    
-    /**
-     * Calculate percentage change
-     */
-    private function calculateChange($current, $previous): float
-    {
-        if ($previous == 0) {
-            return $current > 0 ? 100 : 0;
-        }
-        return round((($current - $previous) / $previous) * 100, 1);
+        return $this->db->fetch(
+            "SELECT 
+                COUNT(*) as views,
+                SUM(is_unique) as unique_views,
+                SUM(CASE WHEN conversion_time IS NOT NULL THEN 1 ELSE 0 END) as conversions,
+                COALESCE(SUM(revenue), 0) as revenue,
+                COALESCE(SUM(cost), 0) as cost,
+                COALESCE(SUM(revenue) - SUM(cost), 0) as profit
+             FROM clicks
+             WHERE DATE(view_time) = ?",
+            [$today]
+        ) ?: ['views' => 0, 'unique_views' => 0, 'conversions' => 0, 'revenue' => 0, 'cost' => 0, 'profit' => 0];
     }
 }
-
