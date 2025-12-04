@@ -208,18 +208,116 @@ class Stats
     public function getTodayStats(): array
     {
         $today = date('Y-m-d');
+        $yesterday = date('Y-m-d', strtotime('-1 day'));
         
-        return $this->db->fetch(
+        // Get today's stats
+        $todayResult = $this->db->fetch(
             "SELECT 
                 COUNT(*) as views,
-                SUM(is_unique) as unique_views,
+                SUM(CASE WHEN conversion_time IS NOT NULL THEN 1 ELSE 0 END) as conversions,
+                COALESCE(SUM(revenue), 0) as revenue,
+                COALESCE(SUM(cost), 0) as cost
+             FROM clicks
+             WHERE DATE(view_time) = ?",
+            [$today]
+        );
+        
+        // Get yesterday's stats for comparison
+        $yesterdayResult = $this->db->fetch(
+            "SELECT 
+                COUNT(*) as views,
+                SUM(CASE WHEN conversion_time IS NOT NULL THEN 1 ELSE 0 END) as conversions,
+                COALESCE(SUM(revenue), 0) as revenue,
+                COALESCE(SUM(cost), 0) as cost
+             FROM clicks
+             WHERE DATE(view_time) = ?",
+            [$yesterday]
+        );
+        
+        $views = $todayResult['views'] ?? 0;
+        $conversions = $todayResult['conversions'] ?? 0;
+        $revenue = $todayResult['revenue'] ?? 0;
+        $cost = $todayResult['cost'] ?? 0;
+        $profit = $revenue - $cost;
+        
+        $yesterdayViews = $yesterdayResult['views'] ?? 0;
+        $yesterdayConversions = $yesterdayResult['conversions'] ?? 0;
+        $yesterdayRevenue = $yesterdayResult['revenue'] ?? 0;
+        $yesterdayProfit = $yesterdayRevenue - ($yesterdayResult['cost'] ?? 0);
+        
+        return [
+            'views' => $views,
+            'clicks' => $views, // Alias for compatibility
+            'conversions' => $conversions,
+            'revenue' => $revenue,
+            'cost' => $cost,
+            'profit' => $profit,
+            'views_change' => $yesterdayViews > 0 ? (($views - $yesterdayViews) / $yesterdayViews) * 100 : 0,
+            'conversions_change' => $yesterdayConversions > 0 ? (($conversions - $yesterdayConversions) / $yesterdayConversions) * 100 : 0,
+            'revenue_change' => $yesterdayRevenue > 0 ? (($revenue - $yesterdayRevenue) / $yesterdayRevenue) * 100 : 0,
+            'profit_change' => $yesterdayProfit != 0 ? (($profit - $yesterdayProfit) / abs($yesterdayProfit)) * 100 : 0,
+        ];
+    }
+    
+    /**
+     * Get quick stats (counts of various entities)
+     */
+    public function getQuickStats(): array
+    {
+        $activeCampaigns = $this->db->fetchColumn("SELECT COUNT(*) FROM campaigns WHERE is_active = 1");
+        $totalCampaigns = $this->db->fetchColumn("SELECT COUNT(*) FROM campaigns");
+        $trafficSources = $this->db->fetchColumn("SELECT COUNT(*) FROM traffic_sources WHERE is_active = 1");
+        $affiliateNetworks = $this->db->fetchColumn("SELECT COUNT(*) FROM affiliate_networks WHERE is_active = 1");
+        $landingPages = $this->db->fetchColumn("SELECT COUNT(*) FROM landing_pages WHERE is_active = 1");
+        
+        return [
+            'active_campaigns' => (int)$activeCampaigns,
+            'total_campaigns' => (int)$totalCampaigns,
+            'traffic_sources' => (int)$trafficSources,
+            'affiliate_networks' => (int)$affiliateNetworks,
+            'landing_pages' => (int)$landingPages,
+        ];
+    }
+    
+    /**
+     * Get stats for a date range (for charts)
+     */
+    public function getDateRangeStats(string $startDate, string $endDate): array
+    {
+        // First try from cache
+        $cached = $this->db->fetchAll(
+            "SELECT 
+                date,
+                SUM(views) as views,
+                SUM(conversions) as conversions,
+                SUM(revenue) as revenue,
+                SUM(cost) as cost,
+                SUM(revenue - cost) as profit
+             FROM stats_daily
+             WHERE date BETWEEN ? AND ?
+             GROUP BY date
+             ORDER BY date ASC",
+            [$startDate, $endDate]
+        );
+        
+        if (!empty($cached)) {
+            return $cached;
+        }
+        
+        // Fall back to clicks table
+        return $this->db->fetchAll(
+            "SELECT 
+                DATE(view_time) as date,
+                COUNT(*) as views,
                 SUM(CASE WHEN conversion_time IS NOT NULL THEN 1 ELSE 0 END) as conversions,
                 COALESCE(SUM(revenue), 0) as revenue,
                 COALESCE(SUM(cost), 0) as cost,
                 COALESCE(SUM(revenue) - SUM(cost), 0) as profit
              FROM clicks
-             WHERE DATE(view_time) = ?",
-            [$today]
-        ) ?: ['views' => 0, 'unique_views' => 0, 'conversions' => 0, 'revenue' => 0, 'cost' => 0, 'profit' => 0];
+             WHERE DATE(view_time) BETWEEN ? AND ?
+             GROUP BY DATE(view_time)
+             ORDER BY date ASC",
+            [$startDate, $endDate]
+        );
     }
 }

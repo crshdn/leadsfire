@@ -299,6 +299,22 @@ switch ($requestUri) {
     case '/affiliate-networks':
         require BASE_PATH . '/src/Views/affiliate-networks/index.php';
         break;
+    
+    case '/landing-pages':
+        require BASE_PATH . '/src/Views/landing-pages/index.php';
+        break;
+    
+    case '/offers':
+        require BASE_PATH . '/src/Views/offers/index.php';
+        break;
+    
+    case '/reports':
+        require BASE_PATH . '/src/Views/reports/index.php';
+        break;
+    
+    case '/conversions':
+        require BASE_PATH . '/src/Views/conversions/index.php';
+        break;
         
     default:
         http_response_code(404);
